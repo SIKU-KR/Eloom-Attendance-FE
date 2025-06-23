@@ -31,9 +31,7 @@ import { ko } from "date-fns/locale"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
-import { useToast } from "@/hooks/use-toast"
-import attendanceAPI, { Student, AttendanceStatus } from "@/lib/api"
-import { Toaster } from "@/components/ui/toaster"
+import attendanceAPI, { Student, AttendanceStatus, AttendanceWebSocket } from "@/lib/api"
 
 interface MokjangGroup {
   name: string
@@ -64,10 +62,12 @@ const getAttendanceForDate = (student: Student, date: string) => {
 }
 
 export default function Component() {
-  const { toast } = useToast()
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected')
+  const [wsRef, setWsRef] = useState<AttendanceWebSocket | null>(null)
+  const [pendingUpdates, setPendingUpdates] = useState<Set<string>>(new Set())
 
   const [searchTerm, setSearchTerm] = useState("")
   const [sortBy, setSortBy] = useState<"name" | "mokjang">("mokjang")
@@ -111,15 +111,122 @@ export default function Component() {
       const errorMessage = err instanceof Error ? err.message : '데이터를 가져오는데 실패했습니다.'
       setError(errorMessage)
       console.error('데이터 가져오기 실패:', err)
-      toast({
-        title: "데이터를 가져오는데 실패했습니다.",
-        description: errorMessage,
-        variant: "destructive"
-      })
+      // 에러는 콘솔에만 로그 (토스트 제거)
     } finally {
       setLoading(false)
     }
   }
+
+  // 실시간 출석 업데이트를 처리하는 함수
+  const handleWebSocketMessage = (message: any) => {
+    console.log('[WebSocket] 메시지 수신:', message)
+    
+    if (message.type === 'attendance_updated' && message.data) {
+      const { studentId, attendanceDate, worship, mokjang } = message.data
+      
+      // 날짜 형식 정규화 (YYYY-MM-DD)
+      let normalizedDate = attendanceDate
+      if (attendanceDate instanceof Date) {
+        normalizedDate = attendanceDate.toISOString().split('T')[0]
+      } else if (typeof attendanceDate === 'string' && attendanceDate.includes('T')) {
+        normalizedDate = attendanceDate.split('T')[0]
+      }
+      
+      // 본인의 API 요청으로 인한 브로드캐스트인지 확인
+      const updateKey = `${studentId}-${normalizedDate}-${Boolean(worship)}-${Boolean(mokjang)}`
+      console.log('[WebSocket] 업데이트 키 확인:', { updateKey, hasPending: pendingUpdates.has(updateKey), pendingKeys: Array.from(pendingUpdates) })
+      
+      if (pendingUpdates.has(updateKey)) {
+        // 본인의 업데이트이므로 UI 업데이트 스킵 (이미 Optimistic UI로 처리됨)
+        setPendingUpdates(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(updateKey)
+          return newSet
+        })
+        console.log('[WebSocket] 본인 업데이트 브로드캐스트 - UI 업데이트 스킵')
+        return
+      }
+      
+      // 현재 선택된 날짜와 메시지의 날짜가 일치하는 경우에만 UI 업데이트
+      if (normalizedDate === formattedDate) {
+        setStudents(prevStudents => {
+          return prevStudents.map(student => {
+            if (student.id === studentId) {
+              const updatedStudent = { ...student }
+              
+              // 출석 데이터 업데이트
+              if (!updatedStudent.attendances) {
+                updatedStudent.attendances = []
+              }
+              
+              const attendanceIndex = updatedStudent.attendances.findIndex(a => {
+                const aDate = new Date(a.attendanceDate).toISOString().split('T')[0]
+                return aDate === normalizedDate
+              })
+              
+              if (attendanceIndex >= 0) {
+                // 기존 출석 데이터 업데이트
+                updatedStudent.attendances[attendanceIndex] = {
+                  ...updatedStudent.attendances[attendanceIndex],
+                  worship,
+                  mokjang
+                }
+              } else {
+                // 새 출석 데이터 추가
+                updatedStudent.attendances.push({
+                  attendanceDate,
+                  worship,
+                  mokjang
+                })
+              }
+              
+              return updatedStudent
+            }
+            return student
+          })
+        })
+        
+        // 다른 사용자의 업데이트 - 조용히 동기화 (토스트 제거)
+      }
+    } else if (message.type === 'error') {
+      // 웹소켓 에러 메시지 처리 (콘솔에만 로그)
+      console.error('[WebSocket] 서버 에러:', message.message)
+    }
+  }
+
+  // 웹소켓 연결 관리 (수신 전용)
+  useEffect(() => {
+    const ws = new AttendanceWebSocket('출석부 사용자')
+    setWsRef(ws)
+    setWsStatus('connecting')
+    
+    ws.connect(
+      handleWebSocketMessage,
+      (error) => {
+        console.error('[WebSocket] 연결 오류:', error)
+        setWsStatus('disconnected')
+      }
+    )
+    
+    // 연결 상태 모니터링
+    const checkConnection = setInterval(() => {
+      const connectionState = ws.getConnectionState()
+      if (connectionState === 'connected') {
+        setWsStatus('connected')
+      } else if (connectionState === 'connecting') {
+        setWsStatus('connecting')
+      } else {
+        setWsStatus('disconnected')
+      }
+    }, 1000)
+    
+    return () => {
+      clearInterval(checkConnection)
+      ws.disconnect()
+      setWsRef(null)
+      setWsStatus('disconnected')
+    }
+  }, []) // 컴포넌트 마운트 시 한 번만 연결
 
   // 컴포넌트 마운트 시 데이터 가져오기
   useEffect(() => {
@@ -174,33 +281,55 @@ export default function Component() {
     try {
       console.log('출석 업데이트 시작:', { id, type, value, formattedDate })
       
+      const newWorship = type === "worship" ? value : currentAttendance.worship
+      const newMokjang = type === "mokjang" ? value : currentAttendance.mokjang
+      
+      // 본인의 업데이트임을 표시하기 위해 pending 목록에 추가 (Boolean 형태로 일관성 유지)
+      const updateKey = `${id}-${formattedDate}-${Boolean(newWorship)}-${Boolean(newMokjang)}`
+      console.log('[Client] Pending 업데이트 추가:', { updateKey, newWorship, newMokjang })
+      setPendingUpdates(prev => new Set([...prev, updateKey]))
+      
+      // 항상 API를 통해서만 업데이트 수행
       const result = await attendanceAPI.updateAttendance(
         id,
         formattedDate,
-        type === "worship" ? value : currentAttendance.worship,
-        type === "mokjang" ? value : currentAttendance.mokjang
+        newWorship,
+        newMokjang
       )
       
-      console.log('출석 업데이트 성공:', result)
-      // 성공 시에는 이미 UI가 업데이트되어 있으므로 추가 작업 불필요
+      console.log('API를 통한 출석 업데이트 성공:', result)
+      
+      // 일정 시간 후에 pending 상태 정리 (웹소켓 브로드캐스트가 안 왔을 경우 대비)
+      setTimeout(() => {
+        const cleanupKey = `${id}-${formattedDate}-${Boolean(newWorship)}-${Boolean(newMokjang)}`
+        setPendingUpdates(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(cleanupKey)
+          console.log('[Client] Pending 업데이트 자동 정리:', cleanupKey)
+          return newSet
+        })
+      }, 3000) // 3초 후 자동 정리
       
     } catch (error) {
       console.error('출석 업데이트 실패:', error)
       
+      // 실패 시 pending 상태 정리
+      const newWorship = type === "worship" ? value : currentAttendance.worship
+      const newMokjang = type === "mokjang" ? value : currentAttendance.mokjang
+      const updateKey = `${id}-${formattedDate}-${Boolean(newWorship)}-${Boolean(newMokjang)}`
+      setPendingUpdates(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(updateKey)
+        return newSet
+      })
+      
       // 실패 시 롤백: 원래 상태로 되돌리기
       setStudents(students)
       
-      // 에러 메시지 표시 (더 부드러운 방식으로)
+      // 에러 메시지 표시
       const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류'
       
-      // Toast나 더 부드러운 에러 표시 방식 사용 (여기서는 간단히 alert 사용)
-      setTimeout(() => {
-        toast({
-          title: "출석 업데이트에 실패했습니다.",
-          description: errorMessage,
-          variant: "destructive"
-        })
-      }, 100)
+      // 에러는 콘솔에만 로그 (토스트 제거)
     }
   }
 
@@ -233,11 +362,7 @@ export default function Component() {
         setIsAddDialogOpen(false)
       } catch (error) {
         console.error('Failed to add student:', error)
-        toast({
-          title: "학생 추가에 실패했습니다.",
-          description: error instanceof Error ? error.message : '알 수 없는 오류',
-          variant: "destructive"
-        })
+        // 에러는 콘솔에만 로그 (토스트 제거)
       }
     }
   }
@@ -262,11 +387,7 @@ export default function Component() {
         setEditingStudent(null)
       } catch (error) {
         console.error('Failed to update student:', error)
-        toast({
-          title: "학생 정보 수정에 실패했습니다.",
-          description: error instanceof Error ? error.message : '알 수 없는 오류',
-          variant: "destructive"
-        })
+        // 에러는 콘솔에만 로그 (토스트 제거)
       }
     }
   }
@@ -279,11 +400,7 @@ export default function Component() {
       setStudents(prev => prev.filter(student => student.id !== id))
     } catch (error) {
       console.error('Failed to delete student:', error)
-      toast({
-        title: "학생 삭제에 실패했습니다.",
-        description: error instanceof Error ? error.message : '알 수 없는 오류',
-        variant: "destructive"
-      })
+              // 에러는 콘솔에만 로그 (토스트 제거)
     }
   }
 
@@ -400,20 +517,18 @@ export default function Component() {
       <div className="bg-white shadow-sm border-b sticky top-0 z-10">
         <div className="px-4 py-4">
           <div className="flex items-center justify-between mb-4">
-            <div>
+            <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold text-gray-900">출석부</h1>
-              {lastUpdateTime && (
-                <div className="flex items-center gap-2">
-                  <p className="text-xs text-gray-500">마지막 업데이트: {lastUpdateTime}</p>
-                  <button 
-                    onClick={() => fetchData(formattedDate)}
-                    className="text-xs text-blue-500 hover:text-blue-700"
-                    disabled={loading}
-                  >
-                    {loading ? '새로고침 중...' : '새로고침'}
-                  </button>
-                </div>
-              )}
+              <div className="flex items-center gap-1">
+                <div className={`w-2 h-2 rounded-full ${
+                  wsStatus === 'connected' ? 'bg-green-500' : 
+                  wsStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
+                }`}></div>
+                <span className="text-xs text-gray-500">
+                  {wsStatus === 'connected' ? '실시간' : 
+                   wsStatus === 'connecting' ? '연결중' : '오프라인'}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Sheet open={isManageSheetOpen} onOpenChange={setIsManageSheetOpen}>
@@ -926,7 +1041,6 @@ export default function Component() {
           </TabsContent>
         </Tabs>
       </div>
-      <Toaster />
     </div>
   )
 }

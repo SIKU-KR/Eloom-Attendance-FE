@@ -172,70 +172,77 @@ export class AttendanceWebSocket {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectDelay = 1000
+  private onMessageCallback?: (data: any) => void
+  private onErrorCallback?: (error: Event) => void
 
   constructor(private name: string = 'Anonymous') {}
 
   connect(onMessage?: (data: any) => void, onError?: (error: Event) => void) {
+    this.onMessageCallback = onMessage
+    this.onErrorCallback = onError
+    
     const wsURL = `${API_BASE_URL.replace('http', 'ws')}/ws?name=${encodeURIComponent(this.name)}`
     
     try {
       this.ws = new WebSocket(wsURL)
 
       this.ws.onopen = () => {
-        console.log('WebSocket 연결됨')
+        console.log(`[WebSocket] 연결됨 (${this.name})`)
         this.reconnectAttempts = 0
       }
 
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          onMessage?.(data)
+          this.onMessageCallback?.(data)
         } catch (error) {
           console.error('WebSocket 메시지 파싱 오류:', error)
         }
       }
 
       this.ws.onclose = () => {
-        console.log('WebSocket 연결 종료')
-        this.reconnect(onMessage, onError)
+        console.log(`[WebSocket] 연결 종료 (${this.name})`)
+        this.reconnect()
       }
 
       this.ws.onerror = (error) => {
-        console.error('WebSocket 오류:', error)
-        onError?.(error)
+        console.error(`[WebSocket] 오류 (${this.name}):`, error)
+        this.onErrorCallback?.(error)
       }
     } catch (error) {
       console.error('WebSocket 연결 실패:', error)
-      onError?.(error as Event)
+      this.onErrorCallback?.(error as Event)
     }
   }
 
-  private reconnect(onMessage?: (data: any) => void, onError?: (error: Event) => void) {
+  private reconnect() {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
-      console.log(`WebSocket 재연결 시도 ${this.reconnectAttempts}/${this.maxReconnectAttempts}`)
+      console.log(`[WebSocket] 재연결 시도 ${this.reconnectAttempts}/${this.maxReconnectAttempts} (${this.name})`)
       
       setTimeout(() => {
-        this.connect(onMessage, onError)
+        this.connect(this.onMessageCallback, this.onErrorCallback)
       }, this.reconnectDelay * this.reconnectAttempts)
     } else {
-      console.error('WebSocket 재연결 시도 한계 초과')
+      console.error(`[WebSocket] 재연결 시도 한계 초과 (${this.name})`)
     }
   }
 
-  sendAttendanceUpdate(studentId: number, attendanceDate: string, worship?: boolean, mokjang?: boolean) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: 'attendance_update',
-        data: {
-          studentId,
-          attendanceDate,
-          worship,
-          mokjang,
-        },
-      }))
-    } else {
-      console.error('WebSocket이 연결되지 않음')
+  // 클라이언트는 수신 전용으로 사용하므로 발신 기능 제거
+  // sendAttendanceUpdate는 더 이상 사용하지 않음
+
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN
+  }
+
+  getConnectionState(): string {
+    if (!this.ws) return 'disconnected'
+    switch (this.ws.readyState) {
+      case WebSocket.CONNECTING: return 'connecting'
+      case WebSocket.OPEN: return 'connected'
+      case WebSocket.CLOSING: return 'closing'
+      case WebSocket.CLOSED: return 'disconnected'
+      default: return 'unknown'
     }
   }
 
