@@ -181,7 +181,7 @@ export class AttendanceWebSocket {
     this.onMessageCallback = onMessage
     this.onErrorCallback = onError
     
-    const wsURL = `${API_BASE_URL.replace('http', 'ws')}/ws?name=${encodeURIComponent(this.name)}`
+    const wsURL = `${API_BASE_URL.replace('http', 'ws')}${API_PREFIX}?name=${encodeURIComponent(this.name)}`
     
     try {
       this.ws = new WebSocket(wsURL)
