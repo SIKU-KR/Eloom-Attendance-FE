@@ -42,13 +42,10 @@ interface Student {
   name: string
   attendance: Record<string, AttendanceStatus>
   mokjang: string
-  leader: string
-  phone?: string
 }
 
 interface MokjangGroup {
   name: string
-  leader: string
   students: Student[]
   isOpen: boolean
 }
@@ -63,8 +60,6 @@ export default function Component() {
         "2023-06-04": { worship: true, mokjang: true },
       },
       mokjang: "베드로목장",
-      leader: "이목사",
-      phone: "010-1234-5678",
     },
     {
       id: 2,
@@ -74,8 +69,6 @@ export default function Component() {
         "2023-06-04": { worship: true, mokjang: false },
       },
       mokjang: "베드로목장",
-      leader: "이목사",
-      phone: "010-2345-6789",
     },
     {
       id: 3,
@@ -85,8 +78,6 @@ export default function Component() {
         "2023-06-04": { worship: false, mokjang: true },
       },
       mokjang: "베드로목장",
-      leader: "이목사",
-      phone: "010-3456-7890",
     },
     {
       id: 4,
@@ -96,8 +87,6 @@ export default function Component() {
         "2023-06-04": { worship: true, mokjang: true },
       },
       mokjang: "바울목장",
-      leader: "김전도사",
-      phone: "010-4567-8901",
     },
     {
       id: 5,
@@ -107,8 +96,6 @@ export default function Component() {
         "2023-06-04": { worship: false, mokjang: false },
       },
       mokjang: "바울목장",
-      leader: "김전도사",
-      phone: "010-5678-9012",
     },
     {
       id: 6,
@@ -118,8 +105,6 @@ export default function Component() {
         "2023-06-04": { worship: true, mokjang: true },
       },
       mokjang: "바울목장",
-      leader: "김전도사",
-      phone: "010-6789-0123",
     },
     {
       id: 7,
@@ -129,8 +114,6 @@ export default function Component() {
         "2023-06-04": { worship: true, mokjang: false },
       },
       mokjang: "다윗목장",
-      leader: "박집사",
-      phone: "010-7890-1234",
     },
     {
       id: 8,
@@ -140,8 +123,6 @@ export default function Component() {
         "2023-06-04": { worship: false, mokjang: true },
       },
       mokjang: "다윗목장",
-      leader: "박집사",
-      phone: "010-8901-2345",
     },
     {
       id: 9,
@@ -151,8 +132,6 @@ export default function Component() {
         "2023-06-04": { worship: false, mokjang: false },
       },
       mokjang: "다윗목장",
-      leader: "박집사",
-      phone: "010-9012-3456",
     },
     {
       id: 10,
@@ -162,8 +141,6 @@ export default function Component() {
         "2023-06-04": { worship: true, mokjang: true },
       },
       mokjang: "다윗목장",
-      leader: "박집사",
-      phone: "010-0123-4567",
     },
   ])
 
@@ -181,8 +158,6 @@ export default function Component() {
   const [newStudent, setNewStudent] = useState({
     name: "",
     mokjang: "",
-    leader: "",
-    phone: "",
   })
 
   const formattedDate = format(selectedDate, "yyyy-MM-dd")
@@ -216,7 +191,7 @@ export default function Component() {
   }
 
   const addStudent = () => {
-    if (newStudent.name && newStudent.mokjang && newStudent.leader) {
+    if (newStudent.name && newStudent.mokjang) {
       const id = Math.max(...students.map((s) => s.id)) + 1
       setStudents((prev) => [
         ...prev,
@@ -225,11 +200,9 @@ export default function Component() {
           name: newStudent.name,
           attendance: {},
           mokjang: newStudent.mokjang,
-          leader: newStudent.leader,
-          phone: newStudent.phone,
         },
       ])
-      setNewStudent({ name: "", mokjang: "", leader: "", phone: "" })
+      setNewStudent({ name: "", mokjang: "" })
       setIsAddDialogOpen(false)
     }
   }
@@ -263,7 +236,6 @@ export default function Component() {
       if (!groups[mokjang]) {
         groups[mokjang] = {
           name: mokjang,
-          leader: student.leader,
           students: [],
           isOpen: mokjangStates[mokjang] !== false,
         }
@@ -369,24 +341,6 @@ export default function Component() {
                               placeholder="목장명을 입력하세요"
                             />
                           </div>
-                          <div>
-                            <Label htmlFor="leader">리더</Label>
-                            <Input
-                              id="leader"
-                              value={newStudent.leader}
-                              onChange={(e) => setNewStudent((prev) => ({ ...prev, leader: e.target.value }))}
-                              placeholder="리더명을 입력하세요"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="phone">연락처</Label>
-                            <Input
-                              id="phone"
-                              value={newStudent.phone}
-                              onChange={(e) => setNewStudent((prev) => ({ ...prev, phone: e.target.value }))}
-                              placeholder="연락처를 입력하세요"
-                            />
-                          </div>
                           <Button onClick={addStudent} className="w-full">
                             추가하기
                           </Button>
@@ -406,9 +360,8 @@ export default function Component() {
                                 <div>
                                   <h3 className="font-medium text-gray-900">{student.name}</h3>
                                   <p className="text-sm text-gray-600">
-                                    {student.mokjang} · {student.leader}
+                                    {student.mokjang}
                                   </p>
-                                  {student.phone && <p className="text-xs text-gray-500">{student.phone}</p>}
                                 </div>
                               </div>
                               <div className="flex gap-2">
@@ -444,30 +397,6 @@ export default function Component() {
                                             onChange={(e) =>
                                               setEditingStudent((prev) =>
                                                 prev ? { ...prev, mokjang: e.target.value } : null,
-                                              )
-                                            }
-                                          />
-                                        </div>
-                                        <div>
-                                          <Label htmlFor="edit-leader">리더</Label>
-                                          <Input
-                                            id="edit-leader"
-                                            value={editingStudent.leader}
-                                            onChange={(e) =>
-                                              setEditingStudent((prev) =>
-                                                prev ? { ...prev, leader: e.target.value } : null,
-                                              )
-                                            }
-                                          />
-                                        </div>
-                                        <div>
-                                          <Label htmlFor="edit-phone">연락처</Label>
-                                          <Input
-                                            id="edit-phone"
-                                            value={editingStudent.phone || ""}
-                                            onChange={(e) =>
-                                              setEditingStudent((prev) =>
-                                                prev ? { ...prev, phone: e.target.value } : null,
                                               )
                                             }
                                           />
@@ -619,7 +548,6 @@ export default function Component() {
                           <div className="flex items-center justify-between">
                             <div>
                               <CardTitle className="text-lg text-blue-700">{group.name}</CardTitle>
-                              <p className="text-sm text-gray-600">리더: {group.leader}</p>
                             </div>
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className="text-xs">
@@ -728,7 +656,7 @@ export default function Component() {
                             <div>
                               <h3 className="font-medium text-gray-900">{student.name}</h3>
                               <p className="text-xs text-gray-500">
-                                {student.mokjang} · {student.leader}
+                                {student.mokjang}
                               </p>
                               <div className="flex gap-1 mt-1">
                                 {attendance.worship && (
@@ -843,13 +771,11 @@ export default function Component() {
               <CardContent className="space-y-4">
                 {mokjangList.map((mokjang) => {
                   const stats = getMokjangStats(mokjang)
-                  const leader = students.find((s) => s.mokjang === mokjang)?.leader || ""
                   return (
                     <div key={mokjang} className="space-y-2">
                       <div className="flex justify-between items-center">
                         <div>
                           <span className="font-medium text-sm">{mokjang}</span>
-                          <span className="text-xs text-gray-500 ml-2">({leader})</span>
                         </div>
                         <div className="text-right">
                           <span className="text-sm font-medium">
