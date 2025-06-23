@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Calendar,
   Church,
@@ -31,18 +31,9 @@ import { ko } from "date-fns/locale"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
-
-interface AttendanceStatus {
-  worship: boolean
-  mokjang: boolean
-}
-
-interface Student {
-  id: number
-  name: string
-  attendance: Record<string, AttendanceStatus>
-  mokjang: string
-}
+import { useToast } from "@/hooks/use-toast"
+import attendanceAPI, { Student, AttendanceStatus } from "@/lib/api"
+import { Toaster } from "@/components/ui/toaster"
 
 interface MokjangGroup {
   name: string
@@ -50,99 +41,33 @@ interface MokjangGroup {
   isOpen: boolean
 }
 
+// 학생의 특정 날짜 출석 상태를 가져오는 헬퍼 함수
+const getAttendanceForDate = (student: Student, date: string) => {
+  // attendances 배열이 존재하는지 확인
+  if (!student.attendances || !Array.isArray(student.attendances)) {
+    return {
+      worship: false,
+      mokjang: false
+    }
+  }
+  
+  // 날짜 형식을 정규화하여 비교 (ISO 형식을 YYYY-MM-DD로 변환)
+  const attendance = student.attendances.find(a => {
+    const attendanceDate = new Date(a.attendanceDate).toISOString().split('T')[0]
+    return attendanceDate === date
+  })
+  
+  return {
+    worship: attendance?.worship || false,
+    mokjang: attendance?.mokjang || false
+  }
+}
+
 export default function Component() {
-  const [students, setStudents] = useState<Student[]>([
-    {
-      id: 1,
-      name: "김민수",
-      attendance: {
-        "2023-06-11": { worship: true, mokjang: false },
-        "2023-06-04": { worship: true, mokjang: true },
-      },
-      mokjang: "베드로목장",
-    },
-    {
-      id: 2,
-      name: "이지은",
-      attendance: {
-        "2023-06-11": { worship: false, mokjang: true },
-        "2023-06-04": { worship: true, mokjang: false },
-      },
-      mokjang: "베드로목장",
-    },
-    {
-      id: 3,
-      name: "박준호",
-      attendance: {
-        "2023-06-11": { worship: false, mokjang: false },
-        "2023-06-04": { worship: false, mokjang: true },
-      },
-      mokjang: "베드로목장",
-    },
-    {
-      id: 4,
-      name: "최서연",
-      attendance: {
-        "2023-06-11": { worship: true, mokjang: false },
-        "2023-06-04": { worship: true, mokjang: true },
-      },
-      mokjang: "바울목장",
-    },
-    {
-      id: 5,
-      name: "정우진",
-      attendance: {
-        "2023-06-11": { worship: false, mokjang: true },
-        "2023-06-04": { worship: false, mokjang: false },
-      },
-      mokjang: "바울목장",
-    },
-    {
-      id: 6,
-      name: "한소영",
-      attendance: {
-        "2023-06-11": { worship: true, mokjang: false },
-        "2023-06-04": { worship: true, mokjang: true },
-      },
-      mokjang: "바울목장",
-    },
-    {
-      id: 7,
-      name: "임태현",
-      attendance: {
-        "2023-06-11": { worship: false, mokjang: true },
-        "2023-06-04": { worship: true, mokjang: false },
-      },
-      mokjang: "다윗목장",
-    },
-    {
-      id: 8,
-      name: "송미래",
-      attendance: {
-        "2023-06-11": { worship: true, mokjang: false },
-        "2023-06-04": { worship: false, mokjang: true },
-      },
-      mokjang: "다윗목장",
-    },
-    {
-      id: 9,
-      name: "강동원",
-      attendance: {
-        "2023-06-11": { worship: false, mokjang: false },
-        "2023-06-04": { worship: false, mokjang: false },
-      },
-      mokjang: "다윗목장",
-    },
-    {
-      id: 10,
-      name: "윤서진",
-      attendance: {
-        "2023-06-11": { worship: false, mokjang: true },
-        "2023-06-04": { worship: true, mokjang: true },
-      },
-      mokjang: "다윗목장",
-    },
-  ])
+  const { toast } = useToast()
+  const [students, setStudents] = useState<Student[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const [searchTerm, setSearchTerm] = useState("")
   const [sortBy, setSortBy] = useState<"name" | "mokjang">("mokjang")
@@ -150,6 +75,7 @@ export default function Component() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [mokjangStates, setMokjangStates] = useState<Record<string, boolean>>({})
+  const [lastUpdateTime, setLastUpdateTime] = useState<string>("")
 
   // 관리 페이지 상태
   const [isManageSheetOpen, setIsManageSheetOpen] = useState(false)
@@ -157,30 +83,125 @@ export default function Component() {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null)
   const [newStudent, setNewStudent] = useState({
     name: "",
-    mokjang: "",
+    mokjangName: "",
   })
 
   const formattedDate = format(selectedDate, "yyyy-MM-dd")
   const displayDate = format(selectedDate, "PPP", { locale: ko })
 
-  const updateAttendance = (id: number, type: "worship" | "mokjang", value: boolean) => {
-    setStudents((prev) =>
-      prev.map((student) => {
-        if (student.id !== id) return student
+  // 학생 목록과 출석 데이터를 가져오는 함수
+  const fetchData = async (date: string) => {
+    console.log('데이터 가져오기 시작:', date)
+    setLoading(true)
+    setError(null)
+    try {
+      // 해당 날짜의 출석 데이터 가져오기 (모든 학생 정보 포함)
+      console.log('출석 데이터 요청 중:', date)
+      const attendanceResponse = await attendanceAPI.getAttendanceByDate(date)
+      console.log('출석 데이터 응답:', attendanceResponse)
+      
+      if (!attendanceResponse.data) {
+        throw new Error('출석 데이터를 가져오는데 실패했습니다.')
+      }
 
-        const currentAttendance = student.attendance[formattedDate] || { worship: false, mokjang: false }
-        return {
-          ...student,
-          attendance: {
-            ...student.attendance,
-            [formattedDate]: {
-              ...currentAttendance,
-              [type]: value,
-            },
-          },
-        }
-      }),
-    )
+      console.log('가져온 데이터:', attendanceResponse.data)
+      setStudents(attendanceResponse.data)
+      setLastUpdateTime(new Date().toLocaleTimeString())
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '데이터를 가져오는데 실패했습니다.'
+      setError(errorMessage)
+      console.error('데이터 가져오기 실패:', err)
+      toast({
+        title: "데이터를 가져오는데 실패했습니다.",
+        description: errorMessage,
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 컴포넌트 마운트 시 데이터 가져오기
+  useEffect(() => {
+    fetchData(formattedDate)
+  }, []) // 최초 1회만 실행
+
+  // 날짜 변경 시 데이터 가져오기
+  useEffect(() => {
+    fetchData(formattedDate)
+  }, [formattedDate])
+
+  const updateAttendance = async (id: number, type: "worship" | "mokjang", value: boolean) => {
+    // 현재 학생 찾기
+    const studentIndex = students.findIndex(s => s.id === id)
+    if (studentIndex === -1) return
+    
+    const student = students[studentIndex]
+    const currentAttendance = getAttendanceForDate(student, formattedDate)
+    
+    // Optimistic UI: 즉시 로컬 상태 업데이트
+    const updatedStudents = [...students]
+    const updatedStudent = { ...student }
+    
+    // 해당 날짜의 출석 데이터가 있는지 확인하고 업데이트
+    if (!updatedStudent.attendances) {
+      updatedStudent.attendances = []
+    }
+    
+    const attendanceIndex = updatedStudent.attendances.findIndex(a => {
+      const attendanceDate = new Date(a.attendanceDate).toISOString().split('T')[0]
+      return attendanceDate === formattedDate
+    })
+    
+    if (attendanceIndex >= 0) {
+      // 기존 출석 데이터 업데이트
+      updatedStudent.attendances[attendanceIndex] = {
+        ...updatedStudent.attendances[attendanceIndex],
+        [type]: value
+      }
+    } else {
+      // 새 출석 데이터 추가
+      updatedStudent.attendances.push({
+        attendanceDate: formattedDate,
+        worship: type === "worship" ? value : false,
+        mokjang: type === "mokjang" ? value : false
+      })
+    }
+    
+    updatedStudents[studentIndex] = updatedStudent
+    setStudents(updatedStudents) // 즉시 UI 업데이트
+    
+    try {
+      console.log('출석 업데이트 시작:', { id, type, value, formattedDate })
+      
+      const result = await attendanceAPI.updateAttendance(
+        id,
+        formattedDate,
+        type === "worship" ? value : currentAttendance.worship,
+        type === "mokjang" ? value : currentAttendance.mokjang
+      )
+      
+      console.log('출석 업데이트 성공:', result)
+      // 성공 시에는 이미 UI가 업데이트되어 있으므로 추가 작업 불필요
+      
+    } catch (error) {
+      console.error('출석 업데이트 실패:', error)
+      
+      // 실패 시 롤백: 원래 상태로 되돌리기
+      setStudents(students)
+      
+      // 에러 메시지 표시 (더 부드러운 방식으로)
+      const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류'
+      
+      // Toast나 더 부드러운 에러 표시 방식 사용 (여기서는 간단히 alert 사용)
+      setTimeout(() => {
+        toast({
+          title: "출석 업데이트에 실패했습니다.",
+          description: errorMessage,
+          variant: "destructive"
+        })
+      }, 100)
+    }
   }
 
   const toggleMokjang = (mokjangName: string) => {
@@ -190,32 +211,80 @@ export default function Component() {
     }))
   }
 
-  const addStudent = () => {
-    if (newStudent.name && newStudent.mokjang) {
-      const id = Math.max(...students.map((s) => s.id)) + 1
-      setStudents((prev) => [
-        ...prev,
-        {
-          id,
+  const addStudent = async () => {
+    if (newStudent.name && newStudent.mokjangName) {
+      try {
+        const result = await attendanceAPI.createStudent({
           name: newStudent.name,
-          attendance: {},
-          mokjang: newStudent.mokjang,
-        },
-      ])
-      setNewStudent({ name: "", mokjang: "" })
-      setIsAddDialogOpen(false)
+          mokjang: newStudent.mokjangName
+        })
+        
+        // 성공 시 로컬 상태에 새 학생 추가
+        if (result.success && result.data) {
+          const newStudentData = {
+            ...result.data,
+            mokjangName: result.data.mokjang,
+            attendances: []
+          }
+          setStudents(prev => [...prev, newStudentData])
+        }
+        
+        setNewStudent({ name: "", mokjangName: "" })
+        setIsAddDialogOpen(false)
+      } catch (error) {
+        console.error('Failed to add student:', error)
+        toast({
+          title: "학생 추가에 실패했습니다.",
+          description: error instanceof Error ? error.message : '알 수 없는 오류',
+          variant: "destructive"
+        })
+      }
     }
   }
 
-  const updateStudent = () => {
+  const updateStudent = async () => {
     if (editingStudent) {
-      setStudents((prev) => prev.map((student) => (student.id === editingStudent.id ? editingStudent : student)))
-      setEditingStudent(null)
+      try {
+        await attendanceAPI.updateStudent(editingStudent.id, {
+          name: editingStudent.name,
+          mokjang: editingStudent.mokjangName
+        })
+        
+        // 성공 시 로컬 상태 업데이트
+        setStudents(prev => 
+          prev.map(student => 
+            student.id === editingStudent.id 
+              ? { ...student, name: editingStudent.name, mokjangName: editingStudent.mokjangName }
+              : student
+          )
+        )
+        
+        setEditingStudent(null)
+      } catch (error) {
+        console.error('Failed to update student:', error)
+        toast({
+          title: "학생 정보 수정에 실패했습니다.",
+          description: error instanceof Error ? error.message : '알 수 없는 오류',
+          variant: "destructive"
+        })
+      }
     }
   }
 
-  const deleteStudent = (id: number) => {
-    setStudents((prev) => prev.filter((student) => student.id !== id))
+  const deleteStudent = async (id: number) => {
+    try {
+      await attendanceAPI.deleteStudent(id)
+      
+      // 성공 시 로컬 상태에서 해당 학생 제거
+      setStudents(prev => prev.filter(student => student.id !== id))
+    } catch (error) {
+      console.error('Failed to delete student:', error)
+      toast({
+        title: "학생 삭제에 실패했습니다.",
+        description: error instanceof Error ? error.message : '알 수 없는 오류',
+        variant: "destructive"
+      })
+    }
   }
 
   const changeDate = (increment: number) => {
@@ -226,18 +295,18 @@ export default function Component() {
 
   const filteredStudents = students.filter((student) => {
     const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesMokjang = filterMokjang === "all" || student.mokjang === filterMokjang
+    const matchesMokjang = filterMokjang === "all" || student.mokjangName === filterMokjang
     return matchesSearch && matchesMokjang
   })
 
   const groupedByMokjang = filteredStudents.reduce(
     (groups, student) => {
-      const mokjang = student.mokjang
+      const mokjang = student.mokjangName
       if (!groups[mokjang]) {
         groups[mokjang] = {
           name: mokjang,
           students: [],
-          isOpen: mokjangStates[mokjang] !== false,
+          isOpen: mokjangStates[mokjang] === true, // 기본적으로 접힌 상태로 시작
         }
       }
       groups[mokjang].students.push(student)
@@ -248,10 +317,20 @@ export default function Component() {
 
   const sortedStudents =
     sortBy === "mokjang"
-      ? Object.values(groupedByMokjang)
+      ? Object.values(groupedByMokjang).sort((a, b) => {
+          // "미지정" 그룹을 맨 아래에 배치
+          if (a.name === "미지정" && b.name !== "미지정") return 1
+          if (a.name !== "미지정" && b.name === "미지정") return -1
+          return a.name.localeCompare(b.name, "ko")
+        })
       : filteredStudents.sort((a, b) => a.name.localeCompare(b.name, "ko"))
 
-  const mokjangList = Array.from(new Set(students.map((s) => s.mokjang)))
+  const mokjangList = Array.from(new Set(students.map((s) => s.mokjangName))).sort((a, b) => {
+    // "미지정" 그룹을 맨 아래에 배치
+    if (a === "미지정" && b !== "미지정") return 1
+    if (a !== "미지정" && b === "미지정") return -1
+    return a.localeCompare(b, "ko")
+  })
 
   const getAttendanceStats = () => {
     let worshipCount = 0
@@ -259,7 +338,7 @@ export default function Component() {
     let absentCount = 0
 
     students.forEach((student) => {
-      const attendance = student.attendance[formattedDate] || { worship: false, mokjang: false }
+      const attendance = getAttendanceForDate(student, formattedDate)
       if (attendance.worship) worshipCount++
       if (attendance.mokjang) mokjangCount++
       if (!attendance.worship && !attendance.mokjang) absentCount++
@@ -271,14 +350,14 @@ export default function Component() {
   const stats = getAttendanceStats()
 
   const getMokjangStats = (mokjangName: string) => {
-    const mokjangStudents = students.filter((s) => s.mokjang === mokjangName)
+    const mokjangStudents = students.filter((s) => s.mokjangName === mokjangName)
     let worship = 0
     let mokjang = 0
     let absent = 0
     const total = mokjangStudents.length
 
     mokjangStudents.forEach((student) => {
-      const attendance = student.attendance[formattedDate] || { worship: false, mokjang: false }
+      const attendance = getAttendanceForDate(student, formattedDate)
       if (attendance.worship) worship++
       if (attendance.mokjang) mokjang++
       if (!attendance.worship && !attendance.mokjang) absent++
@@ -288,12 +367,54 @@ export default function Component() {
     return { worship, mokjang, absent, total, attended, rate: total > 0 ? Math.round((attended / total) * 100) : 0 }
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">데이터를 불러오는 중...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-500 text-xl mb-4">⚠️</div>
+          <p className="text-gray-800 font-medium">{error}</p>
+          <button
+            onClick={() => fetchData(formattedDate)}
+            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            다시 시도
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 pb-safe">
       <div className="bg-white shadow-sm border-b sticky top-0 z-10">
         <div className="px-4 py-4">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-xl font-bold text-gray-900">출석부</h1>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">출석부</h1>
+              {lastUpdateTime && (
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-gray-500">마지막 업데이트: {lastUpdateTime}</p>
+                  <button 
+                    onClick={() => fetchData(formattedDate)}
+                    className="text-xs text-blue-500 hover:text-blue-700"
+                    disabled={loading}
+                  >
+                    {loading ? '새로고침 중...' : '새로고침'}
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <Sheet open={isManageSheetOpen} onOpenChange={setIsManageSheetOpen}>
                 <SheetTrigger asChild>
@@ -336,8 +457,8 @@ export default function Component() {
                             <Label htmlFor="mokjang">목장</Label>
                             <Input
                               id="mokjang"
-                              value={newStudent.mokjang}
-                              onChange={(e) => setNewStudent((prev) => ({ ...prev, mokjang: e.target.value }))}
+                              value={newStudent.mokjangName}
+                              onChange={(e) => setNewStudent((prev) => ({ ...prev, mokjangName: e.target.value }))}
                               placeholder="목장명을 입력하세요"
                             />
                           </div>
@@ -360,7 +481,7 @@ export default function Component() {
                                 <div>
                                   <h3 className="font-medium text-gray-900">{student.name}</h3>
                                   <p className="text-sm text-gray-600">
-                                    {student.mokjang}
+                                    {student.mokjangName}
                                   </p>
                                 </div>
                               </div>
@@ -393,10 +514,10 @@ export default function Component() {
                                           <Label htmlFor="edit-mokjang">목장</Label>
                                           <Input
                                             id="edit-mokjang"
-                                            value={editingStudent.mokjang}
+                                            value={editingStudent.mokjangName}
                                             onChange={(e) =>
                                               setEditingStudent((prev) =>
-                                                prev ? { ...prev, mokjang: e.target.value } : null,
+                                                prev ? { ...prev, mokjangName: e.target.value } : null,
                                               )
                                             }
                                           />
@@ -540,24 +661,26 @@ export default function Component() {
             </div>
 
             {sortBy === "mokjang"
-              ? Object.values(groupedByMokjang).map((group) => (
-                  <Card key={group.name} className="shadow-sm">
+              ? (sortedStudents as MokjangGroup[]).map((group) => (
+                  <Card key={`mokjang-${group.name || 'unnamed'}`} className="shadow-sm">
                     <Collapsible open={group.isOpen} onOpenChange={() => toggleMokjang(group.name)}>
                       <CollapsibleTrigger asChild>
-                        <CardHeader className="pb-3 cursor-pointer hover:bg-gray-50">
+                        <CardHeader className="py-5 cursor-pointer hover:bg-gray-50">
                           <div className="flex items-center justify-between">
                             <div>
-                              <CardTitle className="text-lg text-blue-700">{group.name}</CardTitle>
+                              <CardTitle className={`text-lg ${group.name === "미지정" ? "text-gray-500" : "text-blue-700"}`}>
+                                {group.name}
+                              </CardTitle>
                             </div>
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className="text-xs">
-                                {
-                                  group.students.filter((s) => {
-                                    const att = s.attendance[formattedDate] || { worship: false, mokjang: false }
+                                {(() => {
+                                  const attendedCount = group.students.filter((s) => {
+                                    const att = getAttendanceForDate(s, formattedDate)
                                     return att.worship || att.mokjang
                                   }).length
-                                }
-                                /{group.students.length}
+                                  return `${attendedCount}/${group.students.length}`
+                                })()}
                               </Badge>
                               <ChevronDown
                                 className={`h-4 w-4 transition-transform ${group.isOpen ? "rotate-180" : ""}`}
@@ -569,7 +692,7 @@ export default function Component() {
                       <CollapsibleContent>
                         <CardContent className="pt-0 space-y-3">
                           {group.students.map((student) => {
-                            const attendance = student.attendance[formattedDate] || { worship: false, mokjang: false }
+                            const attendance = getAttendanceForDate(student, formattedDate)
                             return (
                               <div
                                 key={student.id}
@@ -583,19 +706,19 @@ export default function Component() {
                                     <h3 className="font-medium text-gray-900">{student.name}</h3>
                                     <div className="flex gap-1 mt-1">
                                       {attendance.worship && (
-                                        <Badge className="bg-blue-500 text-white border-0">
+                                        <Badge key={`${student.id}-worship`} className="bg-blue-500 text-white border-0">
                                           <Church className="h-3 w-3 mr-1" />
                                           예배
                                         </Badge>
                                       )}
                                       {attendance.mokjang && (
-                                        <Badge className="bg-green-500 text-white border-0">
+                                        <Badge key={`${student.id}-mokjang`} className="bg-green-500 text-white border-0">
                                           <Users className="h-3 w-3 mr-1" />
                                           목장
                                         </Badge>
                                       )}
                                       {!attendance.worship && !attendance.mokjang && (
-                                        <Badge className="bg-gray-500 text-white border-0">결석</Badge>
+                                        <Badge key={`${student.id}-absent`} className="bg-gray-500 text-white border-0">결석</Badge>
                                       )}
                                     </div>
                                   </div>
@@ -644,7 +767,7 @@ export default function Component() {
                   </Card>
                 ))
               : filteredStudents.map((student) => {
-                  const attendance = student.attendance[formattedDate] || { worship: false, mokjang: false }
+                  const attendance = getAttendanceForDate(student, formattedDate)
                   return (
                     <Card key={student.id} className="shadow-sm">
                       <CardContent className="p-4">
@@ -656,23 +779,23 @@ export default function Component() {
                             <div>
                               <h3 className="font-medium text-gray-900">{student.name}</h3>
                               <p className="text-xs text-gray-500">
-                                {student.mokjang}
+                                {student.mokjangName}
                               </p>
                               <div className="flex gap-1 mt-1">
                                 {attendance.worship && (
-                                  <Badge className="bg-blue-500 text-white border-0">
+                                  <Badge key={`${student.id}-worship`} className="bg-blue-500 text-white border-0">
                                     <Church className="h-3 w-3 mr-1" />
                                     예배
                                   </Badge>
                                 )}
                                 {attendance.mokjang && (
-                                  <Badge className="bg-green-500 text-white border-0">
+                                  <Badge key={`${student.id}-mokjang`} className="bg-green-500 text-white border-0">
                                     <Users className="h-3 w-3 mr-1" />
                                     목장
                                   </Badge>
                                 )}
                                 {!attendance.worship && !attendance.mokjang && (
-                                  <Badge className="bg-gray-500 text-white border-0">결석</Badge>
+                                  <Badge key={`${student.id}-absent`} className="bg-gray-500 text-white border-0">결석</Badge>
                                 )}
                               </div>
                             </div>
@@ -803,6 +926,7 @@ export default function Component() {
           </TabsContent>
         </Tabs>
       </div>
+      <Toaster />
     </div>
   )
 }

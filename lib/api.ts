@@ -1,5 +1,5 @@
 // API 클라이언트 설정
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8081'
 const API_PREFIX = '/attendance/v1'
 
 // 타입 정의
@@ -54,10 +54,17 @@ class AttendanceAPI {
   }
 
   // 출석 관련 API
-  async getAttendanceByDate(date: string): Promise<{ data: Student[] }> {
+  async getAttendanceByDate(date: string) {
     const response = await fetch(`${this.baseURL}/attendance/${date}`)
-    if (!response.ok) throw new Error('출석 데이터 조회 실패')
-    return response.json()
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { data: [] }
+      }
+      throw new Error('출석 데이터 조회 실패')
+    }
+    
+    const result = await response.json()
+    return result
   }
 
   async getAttendanceStats(date: string): Promise<{ success: boolean; data: AttendanceStats }> {
@@ -92,7 +99,18 @@ class AttendanceAPI {
 
     const response = await fetch(`${this.baseURL}/students?${params}`)
     if (!response.ok) throw new Error('학생 목록 조회 실패')
-    return response.json()
+    
+    const result = await response.json()
+    
+    // 서버 응답의 mokjang을 mokjangName으로 변환
+    if (result.success && result.data) {
+      result.data = result.data.map((student: any) => ({
+        ...student,
+        mokjangName: student.mokjang
+      }))
+    }
+    
+    return result
   }
 
   async createStudent(studentData: { name: string; mokjang: string }) {
