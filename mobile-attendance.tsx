@@ -515,10 +515,10 @@ export default function Component() {
   return (
     <div className="min-h-screen bg-gray-50 pb-safe">
       <div className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="px-4 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-gray-900">출석부</h1>
+        <div className="px-4 py-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-bold text-gray-900">출석부</h1>
               <div className="flex items-center gap-1">
                 <div className={`w-2 h-2 rounded-full ${
                   wsStatus === 'connected' ? 'bg-green-500' : 
@@ -526,16 +526,15 @@ export default function Component() {
                 }`}></div>
                 <span className="text-xs text-gray-500">
                   {wsStatus === 'connected' ? '실시간' : 
-                   wsStatus === 'connecting' ? '연결중' : '오프라인'}
+                   wsStatus === 'connecting' ? '연결중' : '오프라인 (새로고침)'}
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <Sheet open={isManageSheetOpen} onOpenChange={setIsManageSheetOpen}>
                 <SheetTrigger asChild>
-                  <Button variant="outline" className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="flex items-center gap-1 px-2">
                     <UserCog className="h-4 w-4" />
-                    <span className="text-sm">인원 관리</span>
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="right" className="w-full sm:max-w-md">
@@ -662,11 +661,11 @@ export default function Component() {
                 </SheetContent>
               </Sheet>
 
-              <Popover>
+                              <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="flex items-center gap-2 border-dashed">
+                  <Button variant="outline" size="sm" className="flex items-center gap-1 border-dashed px-2">
                     <Calendar className="h-4 w-4" />
-                    <span className="text-sm">{displayDate}</span>
+                    <span className="text-xs">{format(selectedDate, "MM/dd", { locale: ko })}</span>
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="end">
