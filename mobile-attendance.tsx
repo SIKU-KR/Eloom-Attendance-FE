@@ -284,18 +284,16 @@ export default function Component() {
   const getAttendanceStats = () => {
     let worshipCount = 0
     let mokjangCount = 0
-    let bothCount = 0
     let absentCount = 0
 
     students.forEach((student) => {
       const attendance = student.attendance[formattedDate] || { worship: false, mokjang: false }
-      if (attendance.worship && attendance.mokjang) bothCount++
-      else if (attendance.worship) worshipCount++
-      else if (attendance.mokjang) mokjangCount++
-      else absentCount++
+      if (attendance.worship) worshipCount++
+      if (attendance.mokjang) mokjangCount++
+      if (!attendance.worship && !attendance.mokjang) absentCount++
     })
 
-    return { worshipCount, mokjangCount, bothCount, absentCount }
+    return { worshipCount, mokjangCount, absentCount }
   }
 
   const stats = getAttendanceStats()
@@ -304,18 +302,18 @@ export default function Component() {
     const mokjangStudents = students.filter((s) => s.mokjang === mokjangName)
     let worship = 0
     let mokjang = 0
-    let both = 0
+    let absent = 0
     const total = mokjangStudents.length
 
     mokjangStudents.forEach((student) => {
       const attendance = student.attendance[formattedDate] || { worship: false, mokjang: false }
-      if (attendance.worship && attendance.mokjang) both++
-      else if (attendance.worship) worship++
-      else if (attendance.mokjang) mokjang++
+      if (attendance.worship) worship++
+      if (attendance.mokjang) mokjang++
+      if (!attendance.worship && !attendance.mokjang) absent++
     })
 
-    const attended = worship + mokjang + both
-    return { worship, mokjang, both, total, attended, rate: total > 0 ? Math.round((attended / total) * 100) : 0 }
+    const attended = total - absent
+    return { worship, mokjang, absent, total, attended, rate: total > 0 ? Math.round((attended / total) * 100) : 0 }
   }
 
   return (
@@ -790,23 +788,17 @@ export default function Component() {
           </TabsContent>
 
           <TabsContent value="stats" className="space-y-4">
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <Card className="text-center">
                 <CardContent className="p-3">
                   <div className="text-xl font-bold text-blue-600">{stats.worshipCount}</div>
-                  <div className="text-xs text-gray-600">예배만</div>
+                  <div className="text-xs text-gray-600">예배 참여</div>
                 </CardContent>
               </Card>
               <Card className="text-center">
                 <CardContent className="p-3">
                   <div className="text-xl font-bold text-green-600">{stats.mokjangCount}</div>
-                  <div className="text-xs text-gray-600">목장만</div>
-                </CardContent>
-              </Card>
-              <Card className="text-center">
-                <CardContent className="p-3">
-                  <div className="text-xl font-bold text-purple-600">{stats.bothCount}</div>
-                  <div className="text-xs text-gray-600">둘 다</div>
+                  <div className="text-xs text-gray-600">목장 참여</div>
                 </CardContent>
               </Card>
               <Card className="text-center">
@@ -827,7 +819,7 @@ export default function Component() {
                     <span className="text-sm text-gray-600">출석률</span>
                     <span className="font-medium">
                       {Math.round(
-                        ((stats.worshipCount + stats.mokjangCount + stats.bothCount) / students.length) * 100,
+                        ((students.length - stats.absentCount) / students.length) * 100,
                       )}
                       %
                     </span>
@@ -836,7 +828,7 @@ export default function Component() {
                     <div
                       className="bg-blue-500 h-2 rounded-full transition-all duration-300"
                       style={{
-                        width: `${((stats.worshipCount + stats.mokjangCount + stats.bothCount) / students.length) * 100}%`,
+                        width: `${((students.length - stats.absentCount) / students.length) * 100}%`,
                       }}
                     ></div>
                   </div>
@@ -867,9 +859,9 @@ export default function Component() {
                         </div>
                       </div>
                       <div className="flex text-xs text-gray-600 gap-4">
-                        <span>예배만: {stats.worship}명</span>
-                        <span>목장만: {stats.mokjang}명</span>
-                        <span>둘 다: {stats.both}명</span>
+                        <span>예배: {stats.worship}명</span>
+                        <span>목장: {stats.mokjang}명</span>
+                        <span>결석: {stats.absent}명</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-1.5">
                         <div
