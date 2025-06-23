@@ -541,7 +541,7 @@ export default function Component() {
                   <SheetHeader>
                     <SheetTitle className="flex items-center gap-2">
                       <UserCog className="h-5 w-5" />
-                      구성원 관리
+                      인원 관리
                     </SheetTitle>
                   </SheetHeader>
 
@@ -550,12 +550,12 @@ export default function Component() {
                       <DialogTrigger asChild>
                         <Button className="w-full flex items-center gap-2">
                           <Plus className="h-4 w-4" />
-                          구성원 추가
+                          인원 추가
                         </Button>
                       </DialogTrigger>
                       <DialogContent>
                         <DialogHeader>
-                          <DialogTitle>새 구성원 추가</DialogTitle>
+                          <DialogTitle>새 인원 추가</DialogTitle>
                         </DialogHeader>
                         <div className="space-y-4">
                           <div>
@@ -584,7 +584,9 @@ export default function Component() {
                     </Dialog>
 
                     <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
-                      {students.map((student) => (
+                      {students
+                        .sort((a, b) => a.name.localeCompare(b.name, "ko"))
+                        .map((student) => (
                         <Card key={student.id} className="shadow-sm">
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
@@ -608,7 +610,7 @@ export default function Component() {
                                   </DialogTrigger>
                                   <DialogContent>
                                     <DialogHeader>
-                                      <DialogTitle>구성원 수정</DialogTitle>
+                                      <DialogTitle>인원 수정</DialogTitle>
                                     </DialogHeader>
                                     {editingStudent && (
                                       <div className="space-y-4">
