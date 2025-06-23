@@ -323,7 +323,7 @@ export default function Component() {
       <div className="bg-white shadow-sm border-b sticky top-0 z-10">
         <div className="px-4 py-4">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-xl font-bold text-gray-900">목장 출석부</h1>
+            <h1 className="text-xl font-bold text-gray-900">출석부</h1>
             <div className="flex items-center gap-2">
               <Sheet open={isManageSheetOpen} onOpenChange={setIsManageSheetOpen}>
                 <SheetTrigger asChild>
